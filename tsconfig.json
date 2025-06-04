@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "target": "ES6",
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "baseUrl": ".", // Asegúrate de que esta línea esté presente
+    "paths": {
+      "@/components/*": ["components/*"], // Añade estos si usas aliases para tus componentes
+      "@/lib/*": ["lib/*"],             // Añade estos si usas aliases para lib
+      "@/styles/*": ["styles/*"],           // Añade estos si usas aliases para styles
+      "@/types": ["types/index.ts"],      // <<-- ¡ESTA LÍNEA ES CLAVE Y EXPLÍCITA PARA TUS TIPOS!
+      "@/*": ["./*"]                   // Esta es una regla comodín general, mantenla
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
