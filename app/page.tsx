@@ -39,7 +39,7 @@ import {
   CreditCardIcon,
   Loader2,
 } from "lucide-react";
-
+import bcrypt from 'bcryptjs'; // <-- IMPORTACIÓN NECESARIA PARA HASHING
 // IMPORTA TODAS TUS INTERFACES DESDE EL ARCHIVO CENTRALIZADO
 import { BankAccount, Movement, Credit, Loan, AppData } from '@/types';
 
@@ -59,11 +59,19 @@ export default function BankOfAmericaApp() {
     try {
       setIsLoading(true);
 
-      // Intentar cargar desde localStorage primero (para mejor UX)
+      // --- INICIO: Manejo de localStorage (robusto) ---
       const localData = localStorage.getItem("bankAccounts");
       if (localData) {
-        setAccounts(JSON.parse(localData));
+        try {
+          const parsedLocalData = JSON.parse(localData);
+          setAccounts(parsedLocalData);
+        } catch (e) {
+          console.error("Error al parsear datos de localStorage:", e);
+          localStorage.removeItem("bankAccounts"); // Limpiar datos corruptos
+        }
       }
+      // --- FIN: Manejo de localStorage (robusto) ---
+
 
       // Luego intentar cargar desde nuestra API Route (que interactúa con Redis)
       const response = await fetch('/api/data', {
@@ -75,28 +83,36 @@ export default function BankOfAmericaApp() {
 
       if (response.ok) {
         const result = await response.json();
-        if (result.record && result.record.accounts) {
+        if (result.record && Array.isArray(result.record.accounts)) { // <-- Añadida comprobación de array
           setAccounts(result.record.accounts);
           // Actualizar localStorage también
           localStorage.setItem("bankAccounts", JSON.stringify(result.record.accounts));
         } else {
-          console.warn('La API no devolvió cuentas válidas. Usando datos de localStorage o estado vacío.');
-          if (!localData) {
+          console.warn('La API no devolvió cuentas válidas o el formato es incorrecto. Usando datos de localStorage o estado vacío.');
+          // Si la API no devuelve datos válidos, y no había datos locales, se usa array vacío
+          if (!localData) { // Si localData ya se había seteado, no lo sobrescribimos con vacío
             setAccounts([]);
           }
         }
       } else {
         const errorData = await response.json();
-        console.error(`Error ${response.status}: ${errorData.message || JSON.stringify(errorData)}`); // Usamos JSON.stringify como fallback más robusto
+        console.error(`Error ${response.status}: ${errorData.message || JSON.stringify(errorData)}`);
+        // Si la API falla, y no había datos locales, se usa array vacío
         if (!localData) {
-          setAccounts([]);
+            setAccounts([]);
         }
       }
     } catch (error: any) {
-      console.error("Error al cargar datos desde la API:", error.message || error);
+      console.error("Error al cargar datos desde la API (catch principal):", error.message || error);
+      // Fallback robusto si fetch falla o cualquier otra cosa sucede
       const localData = localStorage.getItem("bankAccounts");
       if (localData) {
-        setAccounts(JSON.parse(localData));
+        try {
+          setAccounts(JSON.parse(localData));
+        } catch (e) {
+          console.error("Error al parsear datos de localStorage en catch:", e);
+          setAccounts([]); // Si localStorage también falla, array vacío
+        }
       } else {
         setAccounts([]);
       }
@@ -148,7 +164,7 @@ export default function BankOfAmericaApp() {
   useEffect(() => {
     // Solo intentamos restaurar la sesión una vez que los datos de las cuentas hayan cargado
     // y si no estamos ya loggeados.
-    if (!isLoading && !isLoggedIn) { // No verificar accounts.length > 0 aquí para el admin
+    if (!isLoading && !isLoggedIn) {
       const storedLoggedIn = localStorage.getItem('isLoggedIn');
       const storedCurrentUser = localStorage.getItem('currentUser');
       const storedIsAdmin = localStorage.getItem('isAdmin');
@@ -164,30 +180,48 @@ export default function BankOfAmericaApp() {
             setActiveSection("dashboard");
             console.log("Sesión de administrador restaurada desde localStorage.");
           } else if (storedCurrentUser) {
-            const parsedCurrentUser: BankAccount = JSON.parse(storedCurrentUser);
+            // --- INICIO: Manejo robusto de parsedCurrentUser ---
+            let parsedCurrentUser: BankAccount | null = null;
+            try {
+              parsedCurrentUser = JSON.parse(storedCurrentUser);
+            } catch (e) {
+              console.error("Error al parsear storedCurrentUser de localStorage:", e);
+              // Si falla al parsear, limpiar y salir
+              localStorage.removeItem('isLoggedIn');
+              localStorage.removeItem('currentUser');
+              localStorage.removeItem('isAdmin');
+              return; // Salir del useEffect
+            }
+            // --- FIN: Manejo robusto de parsedCurrentUser ---
 
-            // Verificamos si el usuario almacenado existe en los datos cargados de cuentas
-            // Esta verificación es crucial para usuarios normales
-            const foundUser = accounts.find(
-              (acc) => acc.id === parsedCurrentUser.id && acc.email === parsedCurrentUser.email
-            );
+            if (parsedCurrentUser) { // Asegurarse de que no sea null después del parseo
+              // Verificamos si el usuario almacenado existe en los datos cargados de cuentas
+              const foundUser = accounts.find(
+                (acc) => acc.id === parsedCurrentUser.id && acc.email === parsedCurrentUser.email
+              );
 
-            if (foundUser) {
-              setIsLoggedIn(true);
-              setCurrentUser(foundUser); // Usamos el objeto completo de 'accounts' para consistencia
-              setIsAdmin(false);
-              setActiveSection("inicio");
-              console.log("Sesión de usuario restaurada desde localStorage.");
+              if (foundUser) {
+                setIsLoggedIn(true);
+                setCurrentUser(foundUser); // Usamos el objeto completo de 'accounts' para consistencia
+                setIsAdmin(false);
+                setActiveSection("inicio");
+                console.log("Sesión de usuario restaurada desde localStorage.");
+              } else {
+                console.warn("Usuario de sesión en localStorage no encontrado o inválido en los datos cargados. Limpiando sesión.");
+                // Si el usuario no existe en los datos recién cargados, limpiamos la sesión.
+                localStorage.removeItem('isLoggedIn');
+                localStorage.removeItem('currentUser');
+                localStorage.removeItem('isAdmin');
+              }
             } else {
-              console.warn("Usuario de sesión en localStorage no encontrado o inválido en los datos cargados. Limpiando sesión.");
-              // Si el usuario no existe en los datos recién cargados, limpiamos la sesión.
+              console.warn("storedCurrentUser estaba vacío o nulo. Limpiando sesión.");
               localStorage.removeItem('isLoggedIn');
               localStorage.removeItem('currentUser');
               localStorage.removeItem('isAdmin');
             }
           }
-        } catch (e) {
-          console.error("Error al parsear o restaurar la sesión desde localStorage:", e);
+        } catch (e: any) { // Captura errores generales del try
+          console.error("Error general al restaurar la sesión desde localStorage:", e.message || e);
           // Limpiar datos corruptos
           localStorage.removeItem('isLoggedIn');
           localStorage.removeItem('currentUser');
@@ -360,40 +394,59 @@ export default function BankOfAmericaApp() {
   const generateAccountNumber = () => {
     const randomPart1 = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
     const randomPart2 = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
-    return `4001-${randomPart1}-${randomPart2}`;
+    return `4001-<span class="math-inline">\{randomPart1\}\-</span>{randomPart2}`;
   };
 
-  // Modificar handleLogin para guardar la sesión en localStorage
-  const handleLogin = () => {
-    // Verificar si es administrador
-    if (loginForm.identifier === "admin" && loginForm.password === "admin123") {
-      setIsAdmin(true);
-      setIsLoggedIn(true);
-      // Guardar en localStorage
-      localStorage.setItem('isLoggedIn', 'true');
-      localStorage.setItem('isAdmin', 'true');
-      // Guardar un currentUser ficticio para el admin, o simplemente null y manejarlo en useEffect
-      localStorage.setItem('currentUser', JSON.stringify({ id: 'admin', email: 'admin@bankofamerica.com', fullName: 'Administrador' }));
-      return;
-    }
+  // **********************************************************
+  // handleLogin (MODIFICADA para usar API Route)
+  // **********************************************************
+  const handleLogin = async () => { // <--- HACER ASÍNCRONA
+    setIsLoading(true); // Mostrar un loader mientras se intenta login
+    try {
+      // Lógica para administrador fijo (si quieres mantenerla sin pasar por la API)
+      if (loginForm.identifier === "admin" && loginForm.password === "admin123") {
+        setIsAdmin(true);
+        setIsLoggedIn(true);
+        localStorage.setItem('isLoggedIn', 'true');
+        localStorage.setItem('isAdmin', 'true');
+        localStorage.setItem('currentUser', JSON.stringify({ id: 'admin', email: 'admin@bankofamerica.com', fullName: 'Administrador' }));
+        setActiveSection("dashboard"); // Redirigir al dashboard del admin
+        console.log("Inicio de sesión de administrador exitoso (frontend fijo).");
+        return; // Salir de la función aquí
+      }
 
-    // Verificar usuarios regulares por email o número de cuenta
-    const user = accounts.find(
-      (acc) =>
-        (acc.email === loginForm.identifier || acc.accountNumber === loginForm.identifier) &&
-        acc.password === loginForm.password,
-    );
-    if (user) {
-      setCurrentUser(user);
-      setIsLoggedIn(true);
-      setIsAdmin(false);
-      setActiveSection("inicio");
-      // Guardar en localStorage
-      localStorage.setItem('isLoggedIn', 'true');
-      localStorage.setItem('currentUser', JSON.stringify(user)); // Guardar el objeto de usuario
-      localStorage.setItem('isAdmin', 'false');
-    } else {
-      alert("Credenciales incorrectas");
+      // Llama a tu nueva API Route de login para usuarios regulares
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm), // Envía identifier y password
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log("Inicio de sesión de usuario regular exitoso a través de API.");
+
+        // Si la API devuelve el usuario (sin password), actualiza el estado local
+        setIsLoggedIn(true);
+        setCurrentUser(result.user); // Asumiendo que `result.user` es el objeto de usuario que la API devuelve
+        setIsAdmin(false);
+        setActiveSection("inicio"); // Redirigir al inicio del usuario
+
+        // Persistir en localStorage (la cookie HttpOnly ya maneja la sesión, esto es por si la UI depende de localStorage para el estado inicial)
+        localStorage.setItem('isLoggedIn', 'true');
+        localStorage.setItem('currentUser', JSON.stringify(result.user));
+        localStorage.setItem('isAdmin', 'false');
+
+      } else {
+        const errorData = await response.json();
+        console.error("Error en el login de usuario regular (API):", errorData.message || errorData);
+        alert(errorData.message || "Credenciales incorrectas."); // Muestra el mensaje de error de la API
+      }
+    } catch (error: any) {
+      console.error("Error de red o desconocido al intentar login:", error.message || error);
+      alert("Error de conexión. Por favor, intente de nuevo más tarde.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -408,6 +461,8 @@ export default function BankOfAmericaApp() {
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('currentUser');
     localStorage.removeItem('isAdmin');
+    // Si usas cookies, deberías tener una API route para logout que limpie la cookie del lado del servidor
+    // fetch('/api/auth/logout', { method: 'POST' }); // <--- Podrías añadir esto si creas una API de logout
   };
 
   // Funciones para servicios destacados
@@ -479,14 +534,24 @@ export default function BankOfAmericaApp() {
   };
 
   const generateQRCode = () => {
-    const qrData = `${currentUser?.accountNumber}-${Date.now()}`;
+    const qrData = `<span class="math-inline">\{currentUser?\.accountNumber\}\-</span>{Date.now()}`;
     alert(`Código QR generado para recibir pagos: ${qrData}`);
     setShowQRDialog(false);
   };
 
-  const handleCreateAccount = () => {
+  // **********************************************************
+  // handleCreateAccount (MODIFICADA para hashear contraseña)
+  // **********************************************************
+  const handleCreateAccount = async () => { // <--- HACER ASÍNCRONA
     const accountNumber = generateAccountNumber();
     const movements: Movement[] = [];
+
+    // --- INICIO: Lógica para Hashear Contraseña ---
+    // Genera el hash de la contraseña antes de guardarla.
+    // Si no se proporciona una contraseña, usa el número de cuenta (hasheado también).
+    const rawPassword = newAccount.password || accountNumber.replace(/-/g, "");
+    const hashedPassword = await bcrypt.hash(rawPassword, 10); // 10 es el costo del salt.
+    // --- FIN: Lógica para Hashear Contraseña ---
 
     // Agregar depósito inicial si hay saldo
     if (newAccount.initialBalance > 0) {
@@ -504,7 +569,7 @@ export default function BankOfAmericaApp() {
       accountNumber: accountNumber,
       fullName: newAccount.fullName,
       email: newAccount.email,
-      password: newAccount.password || accountNumber.replace(/-/g, ""),
+      password: hashedPassword, // <--- ¡Ahora guarda el HASHED PASSWORD!
       balance: newAccount.initialBalance,
       accountType: newAccount.accountType,
       createdAt: new Date().toISOString().split("T")[0],
@@ -515,11 +580,11 @@ export default function BankOfAmericaApp() {
       address: newAccount.address,
     };
 
-    setAccounts([...accounts, account]);
+    setAccounts([...accounts, account]); // Esto eventualmente llamará a saveDataToAPI
     setNewAccount({
       fullName: "",
       email: "",
-      password: "",
+      password: "", // Limpiar la contraseña ingresada del formulario
       accountType: "Ahorros",
       initialBalance: 0,
       phone: "",
@@ -1259,7 +1324,7 @@ export default function BankOfAmericaApp() {
                         <TableBody>
                           {accounts.map((account) =>
                             account.loans.map((loan) => (
-                              <TableRow key={`${account.id}-${loan.id}`} className="hover:bg-gray-50">
+                              <TableRow key={`<span class="math-inline">\{account\.id\}\-</span>{loan.id}`} className="hover:bg-gray-50">
                                 <TableCell className="font-medium">{account.fullName}</TableCell>
                                 <TableCell className="font-mono">{account.accountNumber}</TableCell>
                                 <TableCell className="font-semibold">{formatCurrency(loan.amount)}</TableCell>
@@ -1414,7 +1479,7 @@ export default function BankOfAmericaApp() {
                         <TableBody>
                           {accounts.map((account) =>
                             account.credits.map((credit) => (
-                              <TableRow key={`${account.id}-${credit.id}`} className="hover:bg-gray-50">
+                              <TableRow key={`<span class="math-inline">\{account\.id\}\-</span>{credit.id}`} className="hover:bg-gray-50">
                                 <TableCell className="font-medium">{account.fullName}</TableCell>
                                 <TableCell className="font-mono">{account.accountNumber}</TableCell>
                                 <TableCell className="font-semibold">{formatCurrency(credit.limit)}</TableCell>
