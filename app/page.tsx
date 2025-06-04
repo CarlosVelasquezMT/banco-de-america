@@ -391,10 +391,14 @@ export default function BankOfAmericaApp() {
     setShowCreditsModal(true);
   };
 
+  // **********************************************************
+  // generateAccountNumber (CORREGIDA)
+  // **********************************************************
   const generateAccountNumber = () => {
     const randomPart1 = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
     const randomPart2 = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
-    return `4001-<span class="math-inline">\{randomPart1\}\-</span>{randomPart2}`;
+    // CORRECCIÓN: ELIMINADAS LAS ETIQUETAS SPAN DENTRO DE LA CADENA
+    return `4001-${randomPart1}-${randomPart2}`;
   };
 
   // **********************************************************
@@ -533,8 +537,12 @@ export default function BankOfAmericaApp() {
     setShowCertificateDialog(false);
   };
 
+  // **********************************************************
+  // generateQRCode (CORREGIDA)
+  // **********************************************************
   const generateQRCode = () => {
-    const qrData = `<span class="math-inline">\{currentUser?\.accountNumber\}\-</span>{Date.now()}`;
+    // CORRECCIÓN: ELIMINADAS LAS ETIQUETAS SPAN DENTRO DE LA CADENA
+    const qrData = `${currentUser?.accountNumber}-${Date.now()}`;
     alert(`Código QR generado para recibir pagos: ${qrData}`);
     setShowQRDialog(false);
   };
@@ -1633,7 +1641,7 @@ export default function BankOfAmericaApp() {
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Editar Cuenta</DialogTitle>
-              <DialogDescription>Modifique los datos de la cuenta</DialogDescription>
+              <DialogDescription>Información y configuración de la cuenta</DialogDescription>
             </DialogHeader>
 
             {editingAccount && (
@@ -1697,7 +1705,7 @@ export default function BankOfAmericaApp() {
           <DialogContent className="max-w-4xl">
             <DialogHeader>
               <DialogTitle>Detalles de la Cuenta</DialogTitle>
-              <DialogDescription>Información completa del cliente</DialogDescription>
+              <CardDescription>Información completa del cliente</CardDescription>
             </DialogHeader>
 
             {selectedAccount && (
@@ -2088,7 +2096,7 @@ export default function BankOfAmericaApp() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Perfil del Administrador</DialogTitle>
-              <DialogDescription>Información y configuración de la cuenta</DialogDescription>
+             <DialogDescription>Información y configuración de la cuenta</DialogDescription>
             </DialogHeader>
             <div className="space-y-6">
               <div className="flex items-center space-x-4">
