@@ -420,7 +420,7 @@ export default function BankOfAmericaApp() {
       }
 
       // Llama a tu nueva API Route de login para usuarios regulares
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginForm), // Envía identifier y password
