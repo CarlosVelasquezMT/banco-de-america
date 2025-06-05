@@ -21,20 +21,20 @@ export async function POST(req: Request) { // Usamos 'Request' del Web API para 
 
   try {
     let allAccounts: BankAccount[] = [];
-    const allAccountsString = await redis.get('bankAccounts'); 
+    const allAccountsString = await redis.get('bankAccountsData'); 
 
     if (allAccountsString) {
       try {
         allAccounts = JSON.parse(allAccountsString as string); 
-        console.log(`[${new Date().toISOString()}] JSON.parse de 'bankAccounts' exitoso. Número de cuentas cargadas: ${allAccounts.length}`);
+        console.log(`[${new Date().toISOString()}] JSON.parse de 'bankAccountsData' exitoso. Número de cuentas cargadas: ${allAccounts.length}`);
       } catch (parseError: any) {
-        console.error(`[${new Date().toISOString()}] ERROR: Falló al parsear JSON de 'bankAccounts' de Redis:`, parseError.message);
-        console.log(`[${new Date().toISOString()}] STRING MALFORMADO (bankAccounts):`, allAccountsString); 
+        console.error(`[${new Date().toISOString()}] ERROR: Falló al parsear JSON de 'bankAccountsData' de Redis:`, parseError.message);
+        console.log(`[${new Date().toISOString()}] STRING MALFORMADO (bankAccountsData):`, allAccountsString); 
         allAccounts = []; 
       }
     } else {
       allAccounts = [];
-      console.warn(`[${new Date().toISOString()}] La clave 'bankAccounts' no fue encontrada o está vacía en Redis. Inicializando cuentas como array vacío.`);
+      console.warn(`[${new Date().toISOString()}] La clave 'bankAccountsData' no fue encontrada o está vacía en Redis. Inicializando cuentas como array vacío.`);
     }
 
     const foundUser = allAccounts.find(

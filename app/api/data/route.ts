@@ -1,73 +1,79 @@
 // app/api/data/route.ts
-import { NextResponse } from 'next/server';
-import { redis } from '@/lib/redis'; 
-import { BankAccount, AppData } from '@/types'; 
+import type { NextApiRequest, NextApiResponse } from 'next'; // Aunque App Router usa Request/Response, estos tipos son útiles si los usas internamente.
+import { redis } from '../../../lib/redis'; // !AJUSTA ESTA RUTA si tu carpeta 'lib' está en un lugar diferente
+import { BankAccount } from '@/types'; // !ASEGÚRATE de que esta ruta sea correcta para tu interfaz BankAccount
 
+// Handler para peticiones GET
+export async function GET(req: Request) { // Usamos Request del Web API para el App Router
+  console.log(`[${new Date().toISOString()}] API /api/data (GET) recibida.`);
 
-const REDIS_KEY = 'bankAccountsData';
-
-const DEFAULT_INITIAL_ACCOUNTS: BankAccount[] = [
-    // ... (tus datos iniciales) ...
-];
-
-export async function GET() {
-  console.log('API GET: Recibiendo solicitud...');
   try {
-    let data: AppData | null = null;
-    
-    // Intenta obtener datos de Redis
-    try {
-        data = await redis.get(REDIS_KEY);
-        console.log('API GET: Intento de obtener datos de Redis.');
-    } catch (redisGetError: any) {
-        console.error('API GET ERROR: Falló redis.get(). Esto podría indicar un problema de conexión:', redisGetError.message || redisGetError);
-        // Si redis.get falla aquí, aún podemos intentar inicializar.
-    }
+    const accountsDataString = await redis.get('bankAccountsData'); // <--- CLAVE CORREGIDA AQUÍ
+    let accounts: BankAccount[] = [];
 
-    if (!data) {
-      console.log('API GET: Datos no encontrados en Redis o falla de conexión. Intentando inicializar con datos por defecto.');
-      const initialDataForRedis: AppData = { accounts: DEFAULT_INITIAL_ACCOUNTS, lastUpdated: new Date().toISOString() };
-      
+    if (accountsDataString) {
       try {
-        await redis.set(REDIS_KEY, initialDataForRedis); // Guarda los datos por defecto
-        console.log('API GET: Datos por defecto guardados en Redis con éxito.');
-        data = initialDataForRedis; // Usa los datos iniciales para la respuesta
-      } catch (redisSetError: any) {
-        console.error('API GET ERROR: Falló redis.set() al inicializar. ¡PROBLEMA CRÍTICO DE REDIS!', redisSetError.message || redisSetError);
-        // Si no podemos guardar los datos por defecto, Redis NO está funcionando.
-        return NextResponse.json({ message: 'Error inicializando datos en Redis', error: redisSetError.message || String(redisSetError) }, { status: 500 });
+        accounts = JSON.parse(accountsDataString as string);
+        console.log(`[${new Date().toISOString()}] /api/data (GET): Datos de 'bankAccountsData' encontrados y parseados.`);
+      } catch (parseError: any) {
+        console.error(`[${new Date().toISOString()}] /api/data (GET): ERROR al parsear JSON de 'bankAccountsData' de Redis:`, parseError.message);
+        console.log(`[${new Date().toISOString()}] /api/data (GET): STRING MALFORMADO:`, accountsDataString);
+        accounts = [];
       }
     } else {
-        console.log('API GET: Datos encontrados en Redis.');
+      console.warn(`[${new Date().toISOString()}] /api/data (GET): La clave 'bankAccountsData' no fue encontrada o está vacía en Redis. Retornando array vacío.`);
+      accounts = [];
     }
+    
+    // Devolver el objeto esperado por el frontend
+    return new Response(JSON.stringify({ record: { accounts: accounts } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
 
-    return NextResponse.json({ record: data });
-  } catch (error: any) { 
-    console.error('API GET ERROR: Error general en la función GET:', error.message || error);
-    return NextResponse.json({ message: 'Error fetching data', error: error.message || String(error) }, { status: 500 });
+  } catch (error: any) {
+    console.error(`[${new Date().toISOString()}] Error en API /api/data (GET):`, error.message || error);
+    return new Response(JSON.stringify({ message: 'Error interno del servidor al cargar datos.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
 
-export async function PUT(request: Request) {
-  console.log('API PUT: Recibiendo solicitud...');
+// Handler para peticiones PUT
+export async function PUT(req: Request) { // Usamos Request del Web API para el App Router
+  console.log(`[${new Date().toISOString()}] API /api/data (PUT) recibida.`);
+
   try {
-    const accountsData: BankAccount[] = await request.json(); 
-    console.log('API PUT: Datos recibidos del cliente. Intentando guardar en Redis.');
+    const accountsToSave: BankAccount[] = await req.json(); // Leer el cuerpo JSON de la Request
 
-    const dataToSave: AppData = { accounts: accountsData, lastUpdated: new Date().toISOString() };
-
-    try {
-        await redis.set(REDIS_KEY, dataToSave);
-        console.log('API PUT: Datos guardados en Redis con éxito.');
-    } catch (redisSetError: any) {
-        console.error('API PUT ERROR: Falló redis.set(). ¡PROBLEMA CRÍTICO DE REDIS!', redisSetError.message || redisSetError);
-        // Si redis.set falla, devuelve un error 500
-        return NextResponse.json({ message: 'Error saving data to Redis', error: redisSetError.message || String(redisSetError) }, { status: 500 });
+    // Validar si el cuerpo de la petición es un array (opcional pero recomendado)
+    if (!Array.isArray(accountsToSave)) {
+      console.error(`[${new Date().toISOString()}] /api/data (PUT): El cuerpo de la petición no es un array de cuentas.`);
+      return new Response(JSON.stringify({ message: 'Formato de datos inválido. Se esperaba un array de cuentas.' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    return NextResponse.json({ message: 'Data saved successfully to Redis' });
-  } catch (error: any) { 
-    console.error('API PUT ERROR: Error general en la función PUT:', error.message || error);
-    return NextResponse.json({ message: 'Error saving data', error: error.message || String(error) }, { status: 500 });
+    // Guardar los datos en Redis bajo la clave 'bankAccountsData'
+    await redis.set('bankAccountsData', JSON.stringify(accountsToSave)); // <--- CLAVE CORREGIDA AQUÍ
+
+    console.log(`[${new Date().toISOString()}] /api/data (PUT): Datos guardados exitosamente en 'bankAccountsData' en Redis.`);
+    return new Response(JSON.stringify({ message: 'Datos guardados exitosamente.' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  } catch (error: any) {
+    console.error(`[${new Date().toISOString()}] Error en API /api/data (PUT):`, error.message || error);
+    return new Response(JSON.stringify({ message: 'Error interno del servidor al guardar datos.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
+
+// Next.js App Router automáticamente devuelve 405 para métodos no exportados (como POST si solo tienes GET)
+// Puedes añadir handlers explícitos para otros métodos si lo deseas, como este para POST
+// (ya está en este ejemplo el PUT, así que se aceptaría)
